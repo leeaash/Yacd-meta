@@ -1,6 +1,7 @@
 import * as React from 'react';
 
-import Button from '../Button';
+import Button from '~/components/shared/Button';
+
 import { FlexCenter } from '../shared/Styled';
 
 const { useRef, useEffect } = React;
@@ -14,19 +15,19 @@ export function ClosePrevConns({ onClickPrimaryButton, onClickSecondaryButton }:
   const primaryButtonRef = useRef<HTMLButtonElement>(null);
   const secondaryButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    primaryButtonRef.current.focus();
+    primaryButtonRef.current?.focus();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.keyCode === 39) {
-      secondaryButtonRef.current.focus();
+      secondaryButtonRef.current?.focus();
     } else if (e.keyCode === 37) {
-      primaryButtonRef.current.focus();
+      primaryButtonRef.current?.focus();
     }
   };
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
     <div onKeyDown={handleKeyDown}>
       <h2>Close Connections?</h2>
       <p>

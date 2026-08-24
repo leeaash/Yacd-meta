@@ -1,211 +1,195 @@
-import { Tooltip } from '@reach/tooltip';
 import cx from 'clsx';
 import * as React from 'react';
-import { useTranslation } from 'react-i18next';
 
-import Button from '~/components/Button';
-import ContentHeader from '~/components/ContentHeader';
 import { ClosePrevConns } from '~/components/proxies/ClosePrevConns';
+import { ProxiesHeader } from '~/components/proxies/ProxiesHeader';
 import { ProxyGroup } from '~/components/proxies/ProxyGroup';
-import { ProxyPageFab } from '~/components/proxies/ProxyPageFab';
 import { ProxyProvider } from '~/components/proxies/ProxyProvider';
-import Settings from '~/components/proxies/Settings';
 import BaseModal from '~/components/shared/BaseModal';
-import { TextFilter } from '~/components/shared/TextFitler';
-import { connect, useStoreActions } from '~/components/StateProvider';
-import Equalizer from '~/components/svg/Equalizer';
-import { getClashAPIConfig, getProxiesLayout } from '~/store/app';
 import {
-  fetchProxies,
-  getDelay,
-  getProxyGroupNames,
-  getProxyProviders,
-  getShowModalClosePrevConns,
-  proxyFilterText,
-} from '~/store/proxies';
-import type { State } from '~/store/types';
+  useCollapseAll,
+  useProxiesPage,
+  useTestLatencyAction,
+  useUpdateProviderItems,
+  useVisibleGroupNames,
+  useVisibleProviders,
+} from '~/modules/proxies/hooks';
+import { useStoreActions } from '~/store/StateProvider';
+import { DelayMapping, DispatchFn, FormattedProxyProvider, ProxiesMapping } from '~/store/types';
+import { ClashAPIConfig } from '~/types';
 
 import s0 from './Proxies.module.scss';
 
-const { useState, useEffect, useCallback, useRef, useMemo } = React;
+type AppConfig = {
+  proxySortBy: string;
+  hideUnavailableProxies: boolean;
+  autoCloseOldConns: boolean;
+  proxiesLayout: string;
+  proxyGroupByProvider: boolean;
+  latencyTestUrl: string;
+  latencyTestTimeout: number;
+  latencyTestExpectedStatus: string;
+  preferBackendLatencyTestUrl: boolean;
+  providerHealthcheckTimeout: number;
+};
 
-function Proxies({
+type Props = {
+  dispatch: DispatchFn;
+  groupNames: string[];
+  proxies: ProxiesMapping;
+  delay: DelayMapping;
+  collapsibleIsOpen: Record<string, boolean>;
+  proxyProviders: FormattedProxyProvider[];
+  apiConfig: ClashAPIConfig;
+  showModalClosePrevConns: boolean;
+  appConfig: AppConfig;
+};
+
+export default function Proxies({
   dispatch,
   groupNames,
+  proxies,
   delay,
+  collapsibleIsOpen,
   proxyProviders,
   apiConfig,
   showModalClosePrevConns,
-  proxiesLayout,
-}) {
-  const refFetchedTimestamp = useRef<{ startAt?: number; completeAt?: number }>({});
+  appConfig,
+}: Props) {
+  // the panel's configured test URL only feeds the latency-color threshold here;
+  // the actual URL used per request is resolved in the store thunks
+  const httpsLatencyTest = appConfig.latencyTestUrl.startsWith('https://');
 
-  const formatQty = (qty: number) => (qty < 100 ? '' + qty : '99+');
+  // 搜索同时作用于代理组/提供商本身和它们旗下的节点
+  const visibleGroupNames = useVisibleGroupNames(groupNames, proxies);
+  const visibleProviders = useVisibleProviders(proxyProviders);
 
-  const fetchProxiesHooked = useCallback(() => {
-    refFetchedTimestamp.current.startAt = Date.now();
-    dispatch(fetchProxies(apiConfig)).then(() => {
-      refFetchedTimestamp.current.completeAt = Date.now();
-    });
-  }, [apiConfig, dispatch]);
-  useEffect(() => {
-    // fetch it now
-    fetchProxiesHooked();
-
-    // arm a window on focus listener to refresh it
-    const fn = () => {
-      if (
-        refFetchedTimestamp.current.startAt &&
-        Date.now() - refFetchedTimestamp.current.startAt > 3e4 // 30s
-      ) {
-        fetchProxiesHooked();
-      }
-    };
-    window.addEventListener('focus', fn, false);
-    return () => window.removeEventListener('focus', fn, false);
-  }, [fetchProxiesHooked]);
-
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const closeSettingsModal = useCallback(() => {
-    setIsSettingsModalOpen(false);
-  }, []);
-
-  const [activeTab, setActiveTab] = useState('proxies');
-
-  const handleTabKeyDown = useCallback(
-    (tab: string) => (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        setActiveTab(tab);
-      }
-    },
-    []
-  );
+  const {
+    isSettingsOpen,
+    toggleSettings,
+    closeSettings,
+    activeTab,
+    setActiveTab,
+    proxyGroups,
+    providers,
+  } = useProxiesPage({
+    dispatch,
+    apiConfig,
+    groupNames: visibleGroupNames,
+    proxyProviders: visibleProviders,
+    proxiesLayout: appConfig.proxiesLayout,
+  });
 
   const {
     proxies: { closeModalClosePrevConns, closePrevConnsAndTheModal },
   } = useStoreActions();
 
-  const { t } = useTranslation();
+  const providerNames = React.useMemo(
+    () => proxyProviders.map((item) => item.name),
+    [proxyProviders],
+  );
+  const visibleProviderNames = React.useMemo(
+    () => visibleProviders.map((item) => item.name),
+    [visibleProviders],
+  );
 
-  const proxyGroups = useMemo(() => {
-    const formatted = groupNames.map((name, i) => ({ name, i }));
-    if (proxiesLayout !== 'double') return [formatted];
-    const left = [];
-    const right = [];
-    formatted.forEach((item, i) => {
-      if (i % 2 === 0) left.push(item);
-      else right.push(item);
-    });
-    return [left, right];
-  }, [groupNames, proxiesLayout]);
+  // 折叠是视图操作，只作用于搜索后可见的卡片
+  const [toggleCollapseAll, allCollapsed] = useCollapseAll({
+    prefix: activeTab === 'proxies' ? 'proxyGroup' : 'proxyProvider',
+    names: activeTab === 'proxies' ? visibleGroupNames : visibleProviderNames,
+    collapsibleIsOpen,
+  });
 
-  const providers = useMemo(() => {
-    const formatted = proxyProviders.map((item, i) => ({ item, i }));
-    if (proxiesLayout !== 'double') return [formatted];
-    const left = [];
-    const right = [];
-    formatted.forEach((item, i) => {
-      if (i % 2 === 0) left.push(item);
-      else right.push(item);
-    });
-    return [left, right];
-  }, [proxyProviders, proxiesLayout]);
+  const [testAll, isTestingLatency] = useTestLatencyAction({ dispatch, apiConfig });
+  const [updateAllProviders, isUpdatingProviders] = useUpdateProviderItems({
+    apiConfig,
+    dispatch,
+    names: providerNames,
+  });
+
+  const containerClassName = cx(s0.groupsContainer, {
+    [s0.doubleColumn]: appConfig.proxiesLayout === 'double',
+  });
+
+  const content =
+    activeTab === 'proxies' ? (
+      <div className={containerClassName}>
+        {proxyGroups.map((column, i) => (
+          <div key={i} className={s0.column}>
+            {column.map(({ name, i: originalIndex }) => (
+              <div className={s0.group} key={name} style={{ order: originalIndex }}>
+                <ProxyGroup
+                  name={name}
+                  delay={delay}
+                  apiConfig={apiConfig}
+                  dispatch={dispatch}
+                  proxies={proxies}
+                  hideUnavailableProxies={appConfig.hideUnavailableProxies}
+                  proxySortBy={appConfig.proxySortBy}
+                  isOpen={Boolean(collapsibleIsOpen[`proxyGroup:${name}`])}
+                  httpsLatencyTest={httpsLatencyTest}
+                  proxyGroupByProvider={appConfig.proxyGroupByProvider}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className={containerClassName}>
+        {providers.map((column, i) => (
+          <div key={i} className={s0.column}>
+            {column.map(({ item, i: originalIndex }) => (
+              <div className={s0.group} key={item.name} style={{ order: originalIndex }}>
+                <ProxyProvider
+                  name={item.name}
+                  proxies={item.proxies}
+                  type={item.type}
+                  vehicleType={item.vehicleType}
+                  updatedAt={item.updatedAt}
+                  subscriptionInfo={item.subscriptionInfo}
+                  proxyMapping={proxies}
+                  httpsLatencyTest={httpsLatencyTest}
+                  delay={delay}
+                  hideUnavailableProxies={appConfig.hideUnavailableProxies}
+                  proxySortBy={appConfig.proxySortBy}
+                  isOpen={Boolean(collapsibleIsOpen[`proxyProvider:${item.name}`])}
+                  dispatch={dispatch}
+                  apiConfig={apiConfig}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
 
   return (
-    <>
-      <BaseModal isOpen={isSettingsModalOpen} onRequestClose={closeSettingsModal}>
-        <Settings />
-      </BaseModal>
-      <div className={s0.topBar}>
-        <ContentHeader>
-          <div className={s0.tabsContainer}>
-            <div
-              className={cx(s0.tab, { [s0.active]: activeTab === 'proxies' })}
-              onClick={() => setActiveTab('proxies')}
-              onKeyDown={handleTabKeyDown('proxies')}
-              role="button"
-              tabIndex={0}
-            >
-              {t('Proxies')}
-              <span className={s0.tabCount}>{formatQty(groupNames.length)}</span>
-            </div>
-            {proxyProviders.length > 0 && (
-              <div
-                className={cx(s0.tab, { [s0.active]: activeTab === 'providers' })}
-                onClick={() => setActiveTab('providers')}
-                onKeyDown={handleTabKeyDown('providers')}
-                role="button"
-                tabIndex={0}
-              >
-                {t('proxy_provider')}
-                <span className={s0.tabCount}>{formatQty(proxyProviders.length)}</span>
-              </div>
-            )}
-          </div>
-          <div style={{ flex: 1 }} />
-          <div className={s0.topBarRight}>
-            <div className={s0.textFilterContainer}>
-              <TextFilter textAtom={proxyFilterText} placeholder={t('Search')} />
-            </div>
-            <Tooltip label={t('settings')}>
-              <Button kind="minimal" onClick={() => setIsSettingsModalOpen(true)}>
-                <Equalizer size={16} />
-              </Button>
-            </Tooltip>
-          </div>
-        </ContentHeader>
-      </div>
-      {activeTab === 'proxies' ? (
-        <div className={cx(s0.groupsContainer, { [s0.doubleColumn]: proxiesLayout === 'double' })}>
-          {proxyGroups.map((column, i) => (
-            <div key={i} className={s0.column}>
-              {column.map(({ name, i: originalIndex }) => (
-                <div className={s0.group} key={name} style={{ order: originalIndex }}>
-                  <ProxyGroup name={name} delay={delay} apiConfig={apiConfig} dispatch={dispatch} />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className={cx(s0.groupsContainer, { [s0.doubleColumn]: proxiesLayout === 'double' })}>
-          {providers.map((column, i) => (
-            <div key={i} className={s0.column}>
-              {column.map(({ item, i: originalIndex }) => (
-                <div className={s0.group} key={item.name} style={{ order: originalIndex }}>
-                  <ProxyProvider
-                    name={item.name}
-                    proxies={item.proxies}
-                    type={item.type}
-                    vehicleType={item.vehicleType}
-                    updatedAt={item.updatedAt}
-                    subscriptionInfo={item.subscriptionInfo}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ height: 60 }} />
-      <ProxyPageFab dispatch={dispatch} apiConfig={apiConfig} proxyProviders={proxyProviders} />
+    <div className={s0.page}>
+      <ProxiesHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        groupCount={visibleGroupNames.length}
+        providerCount={proxyProviders.length}
+        visibleProviderCount={visibleProviders.length}
+        appConfig={appConfig}
+        isSettingsOpen={isSettingsOpen}
+        toggleSettings={toggleSettings}
+        closeSettings={closeSettings}
+        onToggleCollapseAll={toggleCollapseAll}
+        allCollapsed={allCollapsed}
+        onTestAll={testAll}
+        isTestingLatency={isTestingLatency}
+        onUpdateAllProviders={updateAllProviders}
+        isUpdatingProviders={isUpdatingProviders}
+      />
+      {content}
       <BaseModal isOpen={showModalClosePrevConns} onRequestClose={closeModalClosePrevConns}>
         <ClosePrevConns
           onClickPrimaryButton={() => closePrevConnsAndTheModal(apiConfig)}
           onClickSecondaryButton={closeModalClosePrevConns}
         />
       </BaseModal>
-    </>
+    </div>
   );
 }
-
-const mapState = (s: State) => ({
-  apiConfig: getClashAPIConfig(s),
-  groupNames: getProxyGroupNames(s),
-  proxyProviders: getProxyProviders(s),
-  delay: getDelay(s),
-  showModalClosePrevConns: getShowModalClosePrevConns(s),
-  proxiesLayout: getProxiesLayout(s),
-});
-
-export default connect(mapState)(Proxies);
