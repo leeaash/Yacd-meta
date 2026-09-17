@@ -89,7 +89,7 @@ export type ProxyItem = {
 export type ProxiesMapping = Record<string, ProxyItem>;
 export type DelayMapping = Record<
   string,
-  { number?: number; error?: string; testing?: boolean; updatedAt?: number }
+  { number?: number; failed?: boolean; testing?: boolean; updatedAt?: number }
 >;
 
 export type ProxyProvider = {
@@ -103,21 +103,6 @@ export type ProxyProvider = {
 
 export type FormattedProxyProvider = Omit<ProxyProvider, 'proxies'> & {
   proxies: string[];
-};
-
-export type SwitchProxyCtxItem = { groupName: string; itemName: string };
-type SwitchProxyCtx = {
-  to: SwitchProxyCtxItem;
-};
-export type StateProxies = {
-  proxies: ProxiesMapping;
-  delay: DelayMapping;
-  groupNames: string[];
-  proxyProviders?: FormattedProxyProvider[];
-  dangleProxyNames?: string[];
-
-  showModalClosePrevConns: boolean;
-  switchProxyCtx?: SwitchProxyCtx;
 };
 
 ///// store.configs
@@ -138,7 +123,6 @@ export type StateModals = {
 export type State = {
   app: StateApp;
   configs: StateConfigs;
-  proxies: StateProxies;
   modals: StateModals;
 };
 

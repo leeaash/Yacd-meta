@@ -2,10 +2,7 @@ import cx from 'clsx';
 import * as React from 'react';
 
 import { keyCodes } from '~/misc/keycode';
-import { DispatchFn, ProxyItem } from '~/store/types';
-import { ClashAPIConfig } from '~/types';
-
-import { healthcheckProxy } from '../../store/proxies';
+import { ProxyItem } from '~/store/types';
 
 import s0 from './Proxy.module.scss';
 import { ProxyLatency } from './ProxyLatency';
@@ -47,16 +44,18 @@ function getLabelColor(
   return colorMap.bad;
 }
 
-type ProxyProps = {
+type ProxyBaseProps = {
   name: string;
   now?: boolean;
   proxy: ProxyItem;
-  latency?: { number?: number; error?: string; testing?: boolean };
+  latency?: { number?: number; failed?: boolean; testing?: boolean };
   httpsLatencyTest: boolean;
   isSelectable?: boolean;
   onClick?: (proxyName: string) => unknown;
-  apiConfig: ClashAPIConfig;
-  dispatch: DispatchFn;
+};
+
+type ProxyProps = ProxyBaseProps & {
+  onTestLatency: (name: string, providerName?: string) => void;
 };
 
 export const ProxySmall = memo(function ProxySmall({
@@ -67,8 +66,8 @@ export const ProxySmall = memo(function ProxySmall({
   httpsLatencyTest,
   isSelectable,
   onClick,
-}: ProxyProps) {
-  const delay = proxy.history[proxy.history.length - 1]?.delay;
+}: ProxyBaseProps) {
+  const delay = latency?.failed ? undefined : proxy.history[proxy.history.length - 1]?.delay;
   const latencyNumber = latency?.number ?? delay;
   const color = useMemo(
     () => getLabelColor({ number: latencyNumber }, httpsLatencyTest),
@@ -154,10 +153,9 @@ export const Proxy = memo(function Proxy({
   httpsLatencyTest,
   isSelectable,
   onClick,
-  apiConfig,
-  dispatch,
+  onTestLatency,
 }: ProxyProps) {
-  const delay = proxy.history[proxy.history.length - 1]?.delay;
+  const delay = latency?.failed ? undefined : proxy.history[proxy.history.length - 1]?.delay;
   const latencyNumber =
     typeof latency?.number === 'number'
       ? latency.number
@@ -187,15 +185,15 @@ export const Proxy = memo(function Proxy({
   const className = useMemo(() => {
     return cx(s0.proxy, {
       [s0.now]: now,
-      [s0.error]: latency && latency.error,
+      [s0.failed]: latency && latency.failed,
       [s0.selectable]: isSelectable,
     });
   }, [isSelectable, now, latency]);
 
   const runLatencyTest = React.useCallback(() => {
     if (isTestingLatency) return;
-    dispatch(healthcheckProxy(apiConfig, name));
-  }, [apiConfig, dispatch, isTestingLatency, name]);
+    onTestLatency(name, proxy.providerName);
+  }, [onTestLatency, isTestingLatency, name, proxy.providerName]);
 
   const udpLabel = formatUdpType(proxy.udp, proxy.xudp);
 
@@ -226,7 +224,6 @@ export const Proxy = memo(function Proxy({
           number={hasLatencyNumber ? latencyNumber : undefined}
           color={color}
           isTesting={isTestingLatency}
-          error={latency?.error}
           onClick={runLatencyTest}
         />
       </div>
